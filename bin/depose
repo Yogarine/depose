@@ -1,0 +1,88 @@
+#!/usr/bin/env php
+<?php
+require __DIR__ . '/../vendor/autoload.php';
+
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+
+$application = new Application('depose', '0.1.0');
+$command = $application->register('depose');
+$command->addArgument('stage', InputArgument::REQUIRED, 'Run tasks only on this server or group of servers');
+$command->addOption('environment',   'e',       InputOption::VALUE_REQUIRED, 'Environment', getenv('ENVIRONMENT') ?: 'dev');
+$command->addOption('env-file',      'E',       InputOption::VALUE_REQUIRED, '.env file to use');
+$command->addOption('project-name', ['p', 'N'], InputOption::VALUE_REQUIRED, 'Specify an alternate project name');
+$command->addOption('no-cli',        'C',       InputOption::VALUE_NONE,     'Allocate a pseudo-TTY');
+$command->addOption('foreground',    'F',       InputOption::VALUE_NONE,     'Foreground mode: Run containers in the foreground');
+$command->addArgument('docker-compose-input', InputArgument::IS_ARRAY, 'Input to forward to docker-compose');
+
+$command->setCode(function(InputInterface $input, OutputInterface $output) {
+
+    $command_parts[] = 'docker-compose';
+
+    $stage = $input->getArgument('stage');
+    if (file_exists(".env.{$stage}")) {
+        $dotEnvFile = ".env.{$stage}";
+    } else {
+        $command_parts[] = $stage;
+        $dotEnvFile = '.env';
+    }
+
+    $dotEnvFile  = $input->getOption('env-file') ?: $dotEnvFile;
+    $environment = $input->getOption('environment');
+    $projectName = $input->getOption('project-name');
+    $dockerComposeInput = $input->getArgument('docker-compose-input');
+
+    $command_env = parse_dot_env($dotEnvFile);
+    $command_env['ENVIRONMENT']          = $environment ?: $command_env['ENVIRONMENT'];
+    $command_env['COMPOSE_PROJECT_NAME'] = $projectName ?: $command_env['COMPOSE_PROJECT_NAME'];
+
+    if ($input->getOption('no-cli')) {
+        $command_env['COMPOSE_INTERACTIVE_NO_CLI'] = 1;
+    }
+
+    $env_parts = [];
+    foreach ($command_env as $var => $val) {
+        $env_parts[] = "{$var}=" . escapeshellarg($val);
+    }
+
+    foreach ($dockerComposeInput as $command_part) {
+        $command_parts[] = $command_part;
+    }
+
+    if ('up' === ($command_parts[1] ?? null) && ! $input->getOption('foreground')) {
+        $command_parts[1] .= ' -d';
+    }
+
+
+    $command = implode(' ', $env_parts) . ' ' . implode(' ', $command_parts);
+    passthru($command, $returnVar);
+
+    return $returnVar;
+});
+
+$application->setDefaultCommand('depose', true);
+
+/** @noinspection PhpUnhandledExceptionInspection */
+$application->run();
+
+/**
+ * @param  string  $filename
+ * @return array
+ */
+function parse_dot_env($filename)
+{
+    $dotEnv = file_get_contents($filename);
+
+    $env = [];
+    foreach (explode("\n", $dotEnv) as $row) {
+        if ($row) {
+            [$var, $val] = explode('=', $row, 2);
+            $env[$var] = $val;
+        }
+    }
+
+    return $env;
+}
