@@ -11,16 +11,21 @@ use Symfony\Component\Console\Output\OutputInterface;
 $application = new Application('depose', '0.1.0');
 $command = $application->register('depose');
 $command->addArgument('stage', InputArgument::REQUIRED, 'Run tasks only on this server or group of servers');
-$command->addOption('environment',   'e',       InputOption::VALUE_REQUIRED, 'Environment', getenv('ENVIRONMENT') ?: 'dev');
-$command->addOption('env-file',      'E',       InputOption::VALUE_REQUIRED, '.env file to use');
-$command->addOption('project-name', ['p', 'N'], InputOption::VALUE_REQUIRED, 'Specify an alternate project name');
-$command->addOption('no-cli',        'C',       InputOption::VALUE_NONE,     'Allocate a pseudo-TTY');
-$command->addOption('foreground',    'F',       InputOption::VALUE_NONE,     'Foreground mode: Run containers in the foreground');
+$command->addOption('environment',      'e',       InputOption::VALUE_REQUIRED, 'Environment', getenv('ENVIRONMENT') ?: 'dev');
+$command->addOption('env-file',         'E',       InputOption::VALUE_REQUIRED, '.env file to use');
+$command->addOption('project-name',    ['p', 'N'], InputOption::VALUE_REQUIRED, 'Specify an alternate project name');
+$command->addOption('no-cli',           'C',       InputOption::VALUE_NONE,     'Allocate a pseudo-TTY');
+$command->addOption('no-compatibility', null,      InputOption::VALUE_NONE,     'Allocate a pseudo-TTY');
+$command->addOption('foreground',       'F',       InputOption::VALUE_NONE,     'Foreground mode: Run containers in the foreground');
 $command->addArgument('docker-compose-input', InputArgument::IS_ARRAY, 'Input to forward to docker-compose');
 
 $command->setCode(function(InputInterface $input, OutputInterface $output) {
 
     $command_parts[] = 'docker-compose';
+
+    if (! $input->getOption('no-compatibility')) {
+        $command_parts[] = '--compatibility';
+    }
 
     $stage = $input->getArgument('stage');
     if (file_exists(".env.{$stage}")) {
@@ -55,7 +60,6 @@ $command->setCode(function(InputInterface $input, OutputInterface $output) {
     if ('up' === ($command_parts[1] ?? null) && ! $input->getOption('foreground')) {
         $command_parts[1] .= ' -d';
     }
-
 
     $command = implode(' ', $env_parts) . ' ' . implode(' ', $command_parts);
     passthru($command, $returnVar);
