@@ -29,12 +29,13 @@ $command->addArgument('docker-compose-input', InputArgument::IS_ARRAY, 'Input to
 
 $command->setCode(function(InputInterface $input, OutputInterface $output) {
 
-    $command_parts[] = 'docker-compose';
+    $docker_compose_parts[] = 'docker-compose';
 
     if (! $input->getOption('no-compatibility')) {
-        $command_parts[] = '--compatibility';
+        $docker_compose_parts[] = '--compatibility';
     }
 
+    $command_parts = [];
     $stage = $input->getArgument('stage');
     if (file_exists(".env.{$stage}")) {
         $dotEnvFile = ".env.{$stage}";
@@ -65,11 +66,11 @@ $command->setCode(function(InputInterface $input, OutputInterface $output) {
         $command_parts[] = $command_part;
     }
 
-    if ('up' === ($command_parts[1] ?? null) && ! $input->getOption('foreground')) {
-        $command_parts[1] .= ' -d';
+    if ('up' === ($command_parts[0] ?? null) && ! $input->getOption('foreground')) {
+        $command_parts[] .= ' -d';
     }
 
-    $command = implode(' ', $env_parts) . ' ' . implode(' ', $command_parts);
+    $command = implode(' ', $env_parts) . ' ' . implode(' ', $docker_compose_parts) . ' ' . implode(' ', $command_parts);
     passthru($command, $returnVar);
 
     return $returnVar;
