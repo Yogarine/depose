@@ -78,7 +78,7 @@ function usage(string $depose): void
 Define and run multi-container applications with Docker.
 
 Usage:
-  {$depose} [STAGE] [depose options] [-f <arg>...] [options] [COMMAND] [ARGS...]
+  {$depose} [STAGE] [depose options] [options] [COMMAND] [ARGS...]
   {$depose} -h|--help
 
 Depose Options:
@@ -181,9 +181,9 @@ function find_option($option = null, $shortOption = null)
  */
 function parse_dot_env($filename)
 {
-	if (! file_exists($filename)) {
-		return [];
-	}
+    if (! file_exists($filename)) {
+        return [];
+    }
 
     $dotEnv = file_get_contents($filename);
 
