@@ -21,8 +21,7 @@
         "docs": "https://github.com/Yogarine/depose/blob/master/README.md"
     },
     "require": {
-        "php": ">=7.1.0",
-        "symfony/console": "^4.0.0"
+        "php": ">=7.1.0"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,

@@ -1,85 +1,179 @@
 #!/usr/bin/env php
 <?php
 
-use Symfony\Component\Console\Application;
-use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Console\Output\OutputInterface;
+$depose = array_shift($argv);
+$stage  = array_shift($argv);
 
-foreach (['/../../../autoload.php', '/../vendor/autoload.php', '/vendor/autoload.php'] as $file) {
-    if (file_exists(__DIR__ . $file)) {
-        /** @noinspection PhpIncludeInspection */
-        require __DIR__ . $file;
-
-        break;
-    }
+if ($argc < 2 || get_option('help', 'h')) {
+	usage($depose);
 }
 
-$application = new Application('depose', '0.1.0');
-$command = $application->register('depose');
-$command->addArgument('stage', InputArgument::REQUIRED, 'Run tasks only on this server or group of servers');
-$command->addOption('environment',      'e',       InputOption::VALUE_REQUIRED, 'Environment', getenv('ENVIRONMENT') ?: 'dev');
-$command->addOption('env-file',         'E',       InputOption::VALUE_REQUIRED, '.env file to use');
-$command->addOption('project-name',    ['p', 'N'], InputOption::VALUE_REQUIRED, 'Specify an alternate project name');
-$command->addOption('no-cli',           'C',       InputOption::VALUE_NONE,     'Allocate a pseudo-TTY');
-$command->addOption('no-compatibility', null,      InputOption::VALUE_NONE,     'Allocate a pseudo-TTY');
-$command->addOption('foreground',       'F',       InputOption::VALUE_NONE,     'Foreground mode: Run containers in the foreground');
-$command->addArgument('docker-compose-input', InputArgument::IS_ARRAY, 'Input to forward to docker-compose');
+if ($argc < 2) {
+	die(1);
+}
 
-$command->setCode(function(InputInterface $input, OutputInterface $output) {
+$dockerComposeParts = ['docker-compose'];
+$commandParts       = [];
 
-    $docker_compose_parts[] = 'docker-compose';
+if (file_exists(".env.{$stage}")) {
+    $dotEnvFile = ".env.{$stage}";
+} else {
+    $commandParts[] = $stage;
+    $dotEnvFile = '.env';
+}
 
-    if (! $input->getOption('no-compatibility')) {
-        $docker_compose_parts[] = '--compatibility';
+$noCompatibility = pluck_option('no-compatibility');
+$dotEnvFile      = pluck_option('env-file', null, true) ?: $dotEnvFile;
+$foreground      = pluck_option('foreground', 'F');
+$projectName     = pluck_option(null, 'N');
+if (null === $projectName || find_option(null, 'N') < find_option('project-name', 'p')) {
+    $projectName = get_option('project-name', 'p', true);
+}
+
+if (! $noCompatibility) {
+    $dockerComposeParts[] = '--compatibility';
+}
+
+$dotEnv = parse_dot_env($dotEnvFile);
+if ($projectName) {
+    $dotEnv['COMPOSE_PROJECT_NAME'] = $projectName;
+}
+
+if (get_option('no-cli')) {
+    $dotEnv['COMPOSE_INTERACTIVE_NO_CLI'] = 1;
+}
+
+foreach ($dotEnv as $var => $val) {
+    putenv("{$var}={$val}");
+}
+
+foreach ($argv as $arg) {
+    $commandParts[] = $arg;
+}
+
+if ('up' === ($commandParts[0] ?? null) && ! $foreground) {
+    $commandParts[] .= ' -d';
+}
+
+$command = implode(' ', $dockerComposeParts) . ' ' . implode(' ', $commandParts);
+passthru($command, $returnVar);
+
+die($returnVar);
+
+
+/**
+ * @param  string  $depose
+ * @return void
+ */
+function usage(string $depose): void
+{
+	if (! exec('docker-compose --help', $dockerComposeHelp)) {
+		error_log("Couldn't find docker-compose on your system. You need docker-compose installed to use depose.");
+	}
+
+	$dockerComposeHelp = implode(PHP_EOL, array_slice($dockerComposeHelp, array_search('Options:', $dockerComposeHelp)));
+
+	// TODO add:   -e, --environment           Environment
+	echo <<<EOD
+Define and run multi-container applications with Docker.
+
+Usage:
+  {$depose} [STAGE] [depose options] [-f <arg>...] [options] [COMMAND] [ARGS...]
+  {$depose} -h|--help
+
+Depose Options:
+  -E, --env-file              .env file to use
+  -C, --no-cli                If set, Compose doesn’t attempt to use the Docker
+                              CLI for interactive run and exec operations
+  --no-compatibility          Don't attempt to convert keys in v3 files to
+                              their non-Swarm equivalent
+  -F, --foreground            Foreground mode: Run containers in the foreground
+
+{$dockerComposeHelp}
+EOD;
+}
+
+/**
+ * @param  string|null  $option
+ * @param  string|null  $shortOption
+ * @param  bool         $hasValue
+ * @return bool
+ */
+function get_option(string $option = null, string $shortOption = null, bool $hasValue = false): bool
+{
+	global $argv;
+
+    $key = find_option($option, $shortOption);
+
+	if ($key) {
+		if ($hasValue) {
+			return $argv[$key + 1];;
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * @param  string       $option
+ * @param  string|null  $shortOption
+ * @param  bool         $hasValue
+ * @return bool|string|null
+ */
+function pluck_option(string $option = null, string $shortOption = null, bool $hasValue = false)
+{
+    global $argv;
+
+	$key = find_option($option, $shortOption);
+
+	if ($key) {
+		unset($argv[$key]);
+
+		if ($hasValue) {
+			$value = $argv[$key + 1];
+			unset($argv[$key + 1]);
+		} else {
+			$value = true;
+		}
+	} else {
+        if ($hasValue) {
+            $value = null;
+        } else {
+            $value = false;
+        }
+	}
+
+	return $value;
+}
+
+/**
+ * @param  string|null  $option
+ * @param  string|null  $shortOption
+ * @return int
+ */
+function find_option($option = null, $shortOption = null)
+{
+    global $argv;
+
+    $reverse = array_reverse($argv, true);
+    $keys = [];
+
+    if ($option) {
+        $keys[] = array_search("--{$option}", $reverse);
     }
 
-    $command_parts = [];
-    $stage = $input->getArgument('stage');
-    if (file_exists(".env.{$stage}")) {
-        $dotEnvFile = ".env.{$stage}";
-    } else {
-        $command_parts[] = $stage;
-        $dotEnvFile = '.env';
+    if ($shortOption) {
+        $keys[] = array_search("-{$shortOption}", $reverse);
     }
 
-    $dotEnvFile  = $input->getOption('env-file') ?: $dotEnvFile;
-    $environment = $input->getOption('environment');
-    $projectName = $input->getOption('project-name');
-    $dockerComposeInput = $input->getArgument('docker-compose-input');
-
-    $command_env = parse_dot_env($dotEnvFile);
-    $command_env['ENVIRONMENT']          = $environment ?: $command_env['ENVIRONMENT'];
-    $command_env['COMPOSE_PROJECT_NAME'] = $projectName ?: $command_env['COMPOSE_PROJECT_NAME'];
-
-    if ($input->getOption('no-cli')) {
-        $command_env['COMPOSE_INTERACTIVE_NO_CLI'] = 1;
+    if ($keys) {
+        return max($keys);
     }
 
-    $env_parts = [];
-    foreach ($command_env as $var => $val) {
-        $env_parts[] = "{$var}=" . escapeshellarg($val);
-    }
-
-    foreach ($dockerComposeInput as $command_part) {
-        $command_parts[] = $command_part;
-    }
-
-    if ('up' === ($command_parts[0] ?? null) && ! $input->getOption('foreground')) {
-        $command_parts[] .= ' -d';
-    }
-
-    $command = implode(' ', $env_parts) . ' ' . implode(' ', $docker_compose_parts) . ' ' . implode(' ', $command_parts);
-    passthru($command, $returnVar);
-
-    return $returnVar;
-});
-
-$application->setDefaultCommand('depose', true);
-
-/** @noinspection PhpUnhandledExceptionInspection */
-$application->run();
+    return false;
+}
 
 /**
  * @param  string  $filename
@@ -87,6 +181,10 @@ $application->run();
  */
 function parse_dot_env($filename)
 {
+	if (! file_exists($filename)) {
+		return [];
+	}
+
     $dotEnv = file_get_contents($filename);
 
     $env = [];
