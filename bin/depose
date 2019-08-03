@@ -189,7 +189,12 @@ function parse_dot_env($filename)
 
     $env = [];
     foreach (explode("\n", $dotEnv) as $row) {
-        if ($row) {
+    	$comment = strpos($row, '#');
+    	if (false !== $comment) {
+    		$row = substr($row, 0, $comment);
+	    }
+
+        if (strpos($row, '=')) {
             [$var, $val] = explode('=', $row, 2);
             $env[$var] = $val;
         }
